@@ -218,7 +218,9 @@ impl Inner {
 
     #[inline]
     pub fn set_cursor(&self, cursor: Cursor) {
-        self.canvas.borrow_mut().cursor.set_cursor(cursor)
+        if let Ok(canvas) = self.canvas.try_borrow_mut() {
+            canvas.cursor.set_cursor(cursor);
+        }
     }
 
     #[inline]
@@ -241,7 +243,9 @@ impl Inner {
 
     #[inline]
     pub fn set_cursor_visible(&self, visible: bool) {
-        self.canvas.borrow_mut().cursor.set_cursor_visible(visible)
+        if let Ok(canvas) = self.canvas.try_borrow_mut() {
+            canvas.cursor.set_cursor_visible(visible);
+        }
     }
 
     #[inline]

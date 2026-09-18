@@ -30,6 +30,8 @@ mod main_thread;
 mod monitor;
 mod web_sys;
 mod window;
+#[cfg(web_worker)]
+pub(crate) mod worker;
 
 pub use self::device::DeviceId;
 pub use self::error::OsError;

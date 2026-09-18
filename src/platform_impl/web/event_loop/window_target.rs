@@ -3,14 +3,15 @@ use std::clone::Clone;
 use std::collections::vec_deque::IntoIter as VecDequeIter;
 use std::collections::VecDeque;
 use std::iter;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use web_sys::Element;
 
 use super::super::monitor::MonitorHandle;
 use super::super::KeyEventExtra;
 use super::device::DeviceId;
-use super::runner::{EventWrapper, Execution};
+use super::proxy::ProxyWaker;
+use super::runner::EventWrapper;
 use super::window::WindowId;
 use super::{backend, runner};
 use crate::event::{
@@ -20,7 +21,7 @@ use crate::event_loop::{ControlFlow, DeviceEvents};
 use crate::keyboard::ModifiersState;
 use crate::platform::web::{CustomCursorFuture, PollStrategy, WaitUntilStrategy};
 use crate::platform_impl::platform::cursor::CustomCursor;
-use crate::platform_impl::platform::r#async::Waker;
+
 use crate::window::{
     CustomCursor as RootCustomCursor, CustomCursorSource, Theme, WindowId as RootWindowId,
 };
@@ -44,18 +45,57 @@ impl Clone for ModifiersShared {
     }
 }
 
+#[cfg(web_worker)]
+#[derive(Clone)]
+pub(crate) struct PageRunner(Option<runner::Shared>);
+
+#[cfg(web_worker)]
+impl std::ops::Deref for PageRunner {
+    type Target = runner::Shared;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().expect("DOM operation requires the page host")
+    }
+}
+
 #[derive(Clone)]
 pub struct ActiveEventLoop {
+    #[cfg(not(web_worker))]
     pub(crate) runner: runner::Shared,
+    #[cfg(web_worker)]
+    pub(crate) runner: PageRunner,
+    #[cfg(web_worker)]
+    pub(crate) worker: Option<Rc<super::super::worker::WorkerRunner>>,
     modifiers: ModifiersShared,
 }
 
 impl ActiveEventLoop {
     pub fn new() -> Self {
-        Self { runner: runner::Shared::new(), modifiers: ModifiersShared::default() }
+        #[cfg(web_worker)]
+        if let Some(worker) = super::super::worker::current() {
+            return Self {
+                runner: PageRunner(None),
+                worker: Some(worker),
+                modifiers: ModifiersShared::default(),
+            };
+        }
+        Self {
+            #[cfg(not(web_worker))]
+            runner: runner::Shared::new(),
+            #[cfg(web_worker)]
+            runner: PageRunner(Some(runner::Shared::new())),
+            modifiers: ModifiersShared::default(),
+            #[cfg(web_worker)]
+            worker: None,
+        }
     }
 
     pub fn run(&self, event_handler: Box<runner::EventHandler>, event_loop_recreation: bool) {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            worker.run(event_handler);
+            return;
+        }
         self.runner.event_loop_recreation(event_loop_recreation);
         self.runner.set_listener(event_handler);
     }
@@ -65,10 +105,18 @@ impl ActiveEventLoop {
     }
 
     pub fn create_custom_cursor(&self, source: CustomCursorSource) -> RootCustomCursor {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.create_custom_cursor(source);
+        }
         RootCustomCursor { inner: CustomCursor::new(self, source.inner) }
     }
 
     pub fn create_custom_cursor_async(&self, source: CustomCursorSource) -> CustomCursorFuture {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.create_custom_cursor_async(source);
+        }
         CustomCursorFuture(CustomCursor::new_async(self, source.inner))
     }
 
@@ -611,10 +659,18 @@ impl ActiveEventLoop {
     }
 
     pub fn listen_device_events(&self, allowed: DeviceEvents) {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.listen_device_events(allowed);
+        }
         self.runner.listen_device_events(allowed)
     }
 
     pub fn system_theme(&self) -> Option<Theme> {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.system_theme();
+        }
         backend::is_dark_mode(self.runner.window()).map(|is_dark_mode| {
             if is_dark_mode {
                 Theme::Dark
@@ -625,39 +681,80 @@ impl ActiveEventLoop {
     }
 
     pub(crate) fn set_control_flow(&self, control_flow: ControlFlow) {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.set_control_flow(control_flow);
+        }
         self.runner.set_control_flow(control_flow)
     }
 
     pub(crate) fn control_flow(&self) -> ControlFlow {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.control_flow();
+        }
         self.runner.control_flow()
     }
 
     pub(crate) fn exit(&self) {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.exit();
+        }
         self.runner.exit()
     }
 
     pub(crate) fn exiting(&self) -> bool {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.exiting();
+        }
         self.runner.exiting()
     }
 
     pub(crate) fn set_poll_strategy(&self, strategy: PollStrategy) {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.set_poll_strategy(strategy);
+        }
         self.runner.set_poll_strategy(strategy)
     }
 
     pub(crate) fn poll_strategy(&self) -> PollStrategy {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.poll_strategy();
+        }
         self.runner.poll_strategy()
     }
 
     pub(crate) fn set_wait_until_strategy(&self, strategy: WaitUntilStrategy) {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.set_wait_until_strategy(strategy);
+        }
         self.runner.set_wait_until_strategy(strategy)
     }
 
     pub(crate) fn wait_until_strategy(&self) -> WaitUntilStrategy {
+        #[cfg(web_worker)]
+        if let Some(worker) = &self.worker {
+            return worker.wait_until_strategy();
+        }
         self.runner.wait_until_strategy()
     }
 
-    pub(crate) fn waker(&self) -> Waker<Weak<Execution>> {
+    #[cfg(not(web_worker))]
+    pub(crate) fn waker(&self) -> ProxyWaker {
         self.runner.waker()
+    }
+
+    #[cfg(web_worker)]
+    pub(crate) fn waker(&self) -> ProxyWaker {
+        if let Some(worker) = &self.worker {
+            return ProxyWaker::Worker(worker.shared.clone());
+        }
+        ProxyWaker::Page(self.runner.waker())
     }
 
     pub(crate) fn owned_display_handle(&self) -> OwnedDisplayHandle {

@@ -16,6 +16,8 @@ fn main() {
         free_unix: { all(unix, not(apple), not(android_platform), not(target_os = "emscripten")) },
         redox: { target_os = "redox" },
 
+        web_worker: { all(web_platform, feature = "web-worker", target_feature = "atomics") },
+
         // Native displays.
         x11_platform: { all(feature = "x11", free_unix, not(redox)) },
         wayland_platform: { all(feature = "wayland", free_unix, not(redox)) },

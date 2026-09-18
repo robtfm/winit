@@ -1,0 +1,12 @@
+<canvas id="canvas" style="width:320px;height:240px" tabindex="0"></canvas><input id="other"><script type="module">
+import init, * as wasm from './pkg/smoke.js';
+const module = await WebAssembly.compileStreaming(fetch('./pkg/smoke_bg.wasm'));
+const memory = new WebAssembly.Memory({initial:256,maximum:65536,shared:true});
+await init({module_or_path:module,memory});
+window.wasm=wasm;
+const [id,canvas] = wasm.prepare(document.querySelector('canvas'));
+const worker = new Worker('./worker.js',{type:'module'});
+worker.onerror = e => console.error('WORKER_ERROR',e.message);
+worker.onmessage = e => {window.ready=e.data;};
+worker.postMessage({module,memory,id,canvas},[canvas]);
+</script>

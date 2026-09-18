@@ -1,0 +1,1 @@
+{"private":true,"type":"module","scripts":{"test":"node verify.mjs"},"devDependencies":{"playwright-core":"1.62.1"}}

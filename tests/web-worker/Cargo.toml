@@ -1,0 +1,16 @@
+[package]
+name = "winit-worker-smoke"
+version = "0.1.0"
+edition = "2021"
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+winit = { path = "../..", default-features = false, features = ["web-worker"] }
+wasm-bindgen = "=0.2.127"
+js-sys = "=0.3.104"
+web-sys = { version = "=0.3.104", features = ["HtmlCanvasElement", "OffscreenCanvas", "OffscreenCanvasRenderingContext2d", "console"] }
+console_error_panic_hook = "0.1"
+raw-window-handle = "0.6"
+web-time = "1"
+
+[workspace]

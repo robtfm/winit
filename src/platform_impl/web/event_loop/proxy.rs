@@ -6,12 +6,12 @@ use crate::event_loop::EventLoopClosed;
 use crate::platform_impl::platform::r#async::Waker;
 
 pub struct EventLoopProxy<T: 'static> {
-    runner: Waker<Weak<Execution>>,
+    runner: ProxyWaker,
     sender: Sender<T>,
 }
 
 impl<T: 'static> EventLoopProxy<T> {
-    pub fn new(runner: Waker<Weak<Execution>>, sender: Sender<T>) -> Self {
+    pub fn new(runner: ProxyWaker, sender: Sender<T>) -> Self {
         Self { runner, sender }
     }
 
@@ -25,5 +25,26 @@ impl<T: 'static> EventLoopProxy<T> {
 impl<T: 'static> Clone for EventLoopProxy<T> {
     fn clone(&self) -> Self {
         Self { runner: self.runner.clone(), sender: self.sender.clone() }
+    }
+}
+
+#[cfg(not(web_worker))]
+pub(crate) type ProxyWaker = Waker<Weak<Execution>>;
+
+#[cfg(web_worker)]
+#[derive(Clone)]
+pub(crate) enum ProxyWaker {
+    Page(Waker<Weak<Execution>>),
+    #[cfg(web_worker)]
+    Worker(std::sync::Arc<super::super::worker::Shared>),
+}
+#[cfg(web_worker)]
+impl ProxyWaker {
+    fn wake(&self) {
+        match self {
+            Self::Page(waker) => waker.wake(),
+            #[cfg(web_worker)]
+            Self::Worker(worker) => worker.wake_user(),
+        }
     }
 }

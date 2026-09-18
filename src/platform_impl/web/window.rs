@@ -18,7 +18,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 pub struct Window {
-    inner: Dispatcher<Inner>,
+    pub(crate) inner: Dispatcher<Inner>,
+    #[cfg(web_worker)]
+    pub(crate) worker_id: Option<u32>,
 }
 
 pub struct Inner {
@@ -33,6 +35,10 @@ impl Window {
         target: &ActiveEventLoop,
         mut attr: WindowAttributes,
     ) -> Result<Self, RootOE> {
+        #[cfg(web_worker)]
+        if let Some(worker) = &target.worker {
+            return worker.create_window(attr);
+        }
         let id = target.generate_id();
 
         let window = target.runner.window();
@@ -63,7 +69,23 @@ impl Window {
         let (dispatcher, runner) = Dispatcher::new(target.runner.main_thread(), inner).unwrap();
         target.runner.add_canvas(RootWI(id), canvas, runner);
 
-        Ok(Window { inner: dispatcher })
+        Ok(Window {
+            inner: dispatcher,
+            #[cfg(web_worker)]
+            worker_id: None,
+        })
+    }
+
+    #[cfg(web_worker)]
+    pub(crate) fn request_worker_redraw(&self) -> bool {
+        #[cfg(web_worker)]
+        if let Some(id) = self.worker_id {
+            if let Some(worker) = super::worker::current().filter(|worker| worker.host_id() == id) {
+                worker.request_redraw();
+                return true;
+            }
+        }
+        false
     }
 
     pub(crate) fn maybe_queue_on_main(&self, f: impl FnOnce(&Inner) + Send + 'static) {
@@ -89,6 +111,11 @@ impl Window {
     #[cfg(feature = "rwh_06")]
     #[inline]
     pub fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
+        #[cfg(web_worker)]
+        if let Some(id) = self.worker_id {
+            return super::worker::window_handle(id);
+        }
+
         self.inner
             .value()
             .map(|inner| {
@@ -112,6 +139,46 @@ impl Window {
 }
 
 impl Inner {
+    #[cfg(web_worker)]
+    pub(crate) fn apply_worker_attributes(&self, attributes: WindowAttributes) {
+        {
+            let canvas = self.canvas.borrow();
+            canvas.prevent_default.set(attributes.platform_specific.prevent_default);
+            if attributes.platform_specific.focusable {
+                canvas.set_attribute("tabindex", "0");
+            } else {
+                let _ = canvas.raw().remove_attribute("tabindex");
+                let _ = canvas.raw().blur();
+            }
+            if attributes.platform_specific.append
+                && !canvas.document().contains(Some(canvas.raw()))
+            {
+                canvas
+                    .document()
+                    .body()
+                    .expect("document body")
+                    .append_child(canvas.raw())
+                    .expect("append worker canvas");
+            }
+        }
+        if let Some(size) = attributes.inner_size {
+            self.request_inner_size(size);
+        }
+        self.set_min_inner_size(attributes.min_inner_size);
+        self.set_max_inner_size(attributes.max_inner_size);
+        if let Some(position) = attributes.position {
+            self.set_outer_position(position);
+        }
+        self.set_title(&attributes.title);
+        self.set_cursor(attributes.cursor);
+        if attributes.fullscreen.is_some() {
+            self.set_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
+        if attributes.active && attributes.platform_specific.focusable {
+            self.focus_window();
+        }
+    }
+
     pub fn set_title(&self, title: &str) {
         self.canvas.borrow().set_attribute("alt", title)
     }
@@ -304,6 +371,10 @@ impl Inner {
         if fullscreen.is_some() {
             canvas.request_fullscreen();
         } else {
+            #[cfg(web_worker)]
+            if !canvas.is_fullscreen() {
+                return;
+            }
             canvas.exit_fullscreen()
         }
     }

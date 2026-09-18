@@ -104,3 +104,10 @@ impl<T> DispatchRunner<T> {
         }
     }
 }
+
+#[cfg(web_worker)]
+impl<T> Clone for Dispatcher<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}

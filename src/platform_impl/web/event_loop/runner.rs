@@ -28,7 +28,7 @@ use crate::window::WindowId;
 
 pub struct Shared(Rc<Execution>);
 
-pub(super) type EventHandler = dyn FnMut(Event<()>);
+pub(crate) type EventHandler = dyn FnMut(Event<()>);
 
 impl Clone for Shared {
     fn clone(&self) -> Self {

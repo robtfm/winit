@@ -595,6 +595,11 @@ impl Window {
     /// [`WindowEvent::RedrawRequested`]: crate::event::WindowEvent::RedrawRequested
     #[inline]
     pub fn request_redraw(&self) {
+        #[cfg(web_worker)]
+        if self.window.request_worker_redraw() {
+            return;
+        }
+
         let _span = tracing::debug_span!("winit::Window::request_redraw",).entered();
 
         self.window.maybe_queue_on_main(|w| w.request_redraw())

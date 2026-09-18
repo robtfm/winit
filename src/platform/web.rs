@@ -463,3 +463,9 @@ impl Display for CustomCursorError {
 }
 
 impl Error for CustomCursorError {}
+
+#[cfg(web_worker)]
+pub use crate::platform_impl::worker::{
+    attach_worker, prepare_worker, set_worker_redraw_strategy, worker_attached,
+    WorkerRedrawStrategy,
+};

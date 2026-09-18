@@ -73,7 +73,11 @@ impl CustomCursor {
         match source {
             CustomCursorSource::Image(image) => Self::build_spawn(
                 event_loop,
-                from_rgba(event_loop.runner.window(), event_loop.runner.document().clone(), &image),
+                from_rgba(
+                    event_loop.runner.window(),
+                    event_loop.runner.document().clone(),
+                    &image,
+                ),
                 false,
             ),
             CustomCursorSource::Url { url, hotspot_x, hotspot_y } => Self::build_spawn(

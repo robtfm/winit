@@ -51,6 +51,9 @@ pub(crate) struct Shared {
     window: Window,
     window_id: WindowId,
     events: ConcurrentQueue<ForwardedEvent>,
+    // The page reports the canvas size before the worker claims the window; kept so the
+    // claim can replay it to the application.
+    last_size: Mutex<Option<PhysicalSize<u32>>>,
     notified: AtomicBool,
     user_events: AtomicUsize,
     closed: AtomicBool,
@@ -86,6 +89,9 @@ impl Shared {
         };
         match event {
             Event::NewEvents(_) | Event::AboutToWait => return,
+            Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
+                *self.last_size.lock().unwrap() = Some(size);
+            },
             _ => (),
         }
         let _ = self.events.push(ForwardedEvent { event, size_reply });
@@ -113,6 +119,7 @@ pub fn prepare_worker(canvas: HtmlCanvasElement) -> Result<(u32, OffscreenCanvas
         window,
         window_id,
         events: ConcurrentQueue::unbounded(),
+        last_size: Mutex::new(None),
         notified: AtomicBool::new(false),
         user_events: AtomicUsize::new(0),
         closed: AtomicBool::new(false),
@@ -250,6 +257,16 @@ impl WorkerRunner {
         self.shared.window.maybe_queue_on_main(move |window| {
             window.apply_worker_attributes(attributes);
         });
+        // Any `Resized` the page forwarded before this point reached the application before
+        // it had a window to apply it to. Replay the latest one.
+        if let Some(size) = *self.shared.last_size.lock().unwrap() {
+            let window_id = self.shared.window_id;
+            let _ = self.shared.events.push(ForwardedEvent {
+                event: Event::WindowEvent { window_id, event: WindowEvent::Resized(size) },
+                size_reply: None,
+            });
+            self.shared.notify();
+        }
         Ok(Window { inner: self.shared.window.inner.clone(), worker_id: Some(self.id) })
     }
 

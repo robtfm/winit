@@ -61,7 +61,21 @@ impl<T> Dispatcher<T> {
             let closure = Box::new({
                 let pair = pair.clone();
                 move |value: &T| {
-                    *pair.0.lock().unwrap() = Some(f(value));
+                    let result = f(value);
+                    // This runs on the main thread, which must never block (`Atomics.wait`
+                    // traps there). The caller only holds the lock while it is not parked in
+                    // the condvar wait, so spin for it instead of contending.
+                    let mut slot = loop {
+                        match pair.0.try_lock() {
+                            Ok(guard) => break guard,
+                            Err(std::sync::TryLockError::WouldBlock) => std::hint::spin_loop(),
+                            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                                break poisoned.into_inner()
+                            },
+                        }
+                    };
+                    *slot = Some(result);
+                    drop(slot);
                     pair.1.notify_one();
                 }
             }) as Box<dyn FnOnce(&T) + Send>;

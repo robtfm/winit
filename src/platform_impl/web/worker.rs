@@ -270,6 +270,10 @@ impl WorkerRunner {
         Ok(Window { inner: self.shared.window.inner.clone(), worker_id: Some(self.id) })
     }
 
+    /// How long forwarded events wait for a scheduled redraw before a cycle serves them
+    /// anyway. Longer than any display's refresh interval, so a running rAF always wins.
+    const WAKE_FALLBACK_MS: i32 = 100;
+
     pub(crate) fn run(self: &Rc<Self>, handler: Box<EventHandler>) {
         assert!(self.handler.borrow().is_none(), "worker event loop already running");
         *self.handler.borrow_mut() = Some(handler);
@@ -293,6 +297,23 @@ impl WorkerRunner {
                     break;
                 }
                 let Some(runner) = runner.upgrade() else { break };
+                // A wake while a redraw is already scheduled leaves the forwarded events queued
+                // for the redraw's cycle, which drains them first: one cycle per iteration, as a
+                // native loop batches everything pending, instead of one per forwarded event.
+                // The frame may not come (a hidden tab stops the worker's rAF), so unless a
+                // cycle is already timed, arm a fallback the frame cancels when it does run.
+                if runner.frame.borrow().is_some() {
+                    if runner.timer.borrow().is_none() {
+                        let weak = Rc::downgrade(&runner);
+                        *runner.timer.borrow_mut() =
+                            Some(Callback::timeout(Self::WAKE_FALLBACK_MS, move || {
+                                if let Some(runner) = weak.upgrade() {
+                                    runner.cycle(runner.wake_cause());
+                                }
+                            }));
+                    }
+                    continue;
+                }
                 runner.cycle(runner.wake_cause());
             }
         });

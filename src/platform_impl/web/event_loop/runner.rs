@@ -295,7 +295,9 @@ impl Shared {
                     return;
                 }
 
-                if let Some(delta) = backend::event::mouse_scroll_delta(&window, &event) {
+                if let Some(delta) =
+                    backend::event::mouse_scroll_delta(backend::scale_factor(&window), &event)
+                {
                     runner.send_event(Event::DeviceEvent {
                         device_id: RootDeviceId(DeviceId(0)),
                         event: DeviceEvent::MouseWheel { delta },

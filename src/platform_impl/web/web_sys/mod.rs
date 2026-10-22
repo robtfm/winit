@@ -9,6 +9,8 @@ mod pointer;
 mod resize_scaling;
 mod schedule;
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::OnceLock;
 
 pub use self::canvas::{Canvas, Style};
@@ -51,6 +53,33 @@ pub fn on_page_transition(
 
 pub fn scale_factor(window: &web_sys::Window) -> f64 {
     window.device_pixel_ratio()
+}
+
+/// A canvas's scale factor: the device pixel ratio times the canvas's render scale, which draws
+/// it at a share of its device pixels for the browser to stretch.
+#[derive(Clone)]
+pub struct ScaleFactor {
+    window: web_sys::Window,
+    render_scale: Rc<Cell<f64>>,
+}
+
+impl ScaleFactor {
+    fn new(window: web_sys::Window) -> Self {
+        Self { window, render_scale: Rc::new(Cell::new(1.)) }
+    }
+
+    pub fn get(&self) -> f64 {
+        scale_factor(&self.window) * self.render_scale.get()
+    }
+
+    pub fn render_scale(&self) -> f64 {
+        self.render_scale.get()
+    }
+
+    /// Returns whether the scale changed.
+    fn set_render_scale(&self, render_scale: f64) -> bool {
+        self.render_scale.replace(render_scale) != render_scale
+    }
 }
 
 fn fix_canvas_size(style: &Style, mut size: LogicalSize<f64>) -> LogicalSize<f64> {

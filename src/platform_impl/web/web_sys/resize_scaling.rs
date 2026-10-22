@@ -12,6 +12,7 @@ use crate::dpi::{LogicalSize, PhysicalSize};
 use super::super::backend;
 use super::canvas::Style;
 use super::media_query_handle::MediaQueryListHandle;
+use super::ScaleFactor;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -24,6 +25,7 @@ impl ResizeScaleHandle {
         document: Document,
         canvas: HtmlCanvasElement,
         style: Style,
+        scale: ScaleFactor,
         scale_handler: S,
         resize_handler: R,
     ) -> Self
@@ -36,12 +38,19 @@ impl ResizeScaleHandle {
             document,
             canvas,
             style,
+            scale,
             scale_handler,
             resize_handler,
         ))
     }
 
     pub(crate) fn notify_resize(&self) {
+        self.0.notify()
+    }
+
+    /// Reports the canvas's render scale having changed, as a scale factor change.
+    pub(crate) fn notify_scale_change(&self) {
+        self.0.notify_scale.set(true);
         self.0.notify()
     }
 }
@@ -53,6 +62,7 @@ struct ResizeScaleInternal {
     document: Document,
     canvas: HtmlCanvasElement,
     style: Style,
+    scale: ScaleFactor,
     mql: RefCell<MediaQueryListHandle>,
     observer: ResizeObserver,
     _observer_closure: Closure<dyn FnMut(Array, ResizeObserver)>,
@@ -67,6 +77,7 @@ impl ResizeScaleInternal {
         document: Document,
         canvas: HtmlCanvasElement,
         style: Style,
+        scale: ScaleFactor,
         scale_handler: S,
         resize_handler: R,
     ) -> Rc<Self>
@@ -90,7 +101,7 @@ impl ResizeScaleInternal {
                     let size = this.process_entry(entries);
 
                     if this.notify_scale.replace(false) {
-                        let scale = backend::scale_factor(&this.window);
+                        let scale = this.scale.get();
                         (this.scale_handler)(size, scale)
                     } else {
                         (this.resize_handler)(size)
@@ -104,6 +115,7 @@ impl ResizeScaleInternal {
                 document,
                 canvas,
                 style,
+                scale,
                 mql: RefCell::new(mql),
                 observer,
                 _observer_closure: observer_closure,
@@ -154,7 +166,7 @@ impl ResizeScaleInternal {
             let size = PhysicalSize::new(0, 0);
 
             if self.notify_scale.replace(false) {
-                let scale = backend::scale_factor(&self.window);
+                let scale = self.scale.get();
                 (self.scale_handler)(size, scale)
             } else {
                 (self.resize_handler)(size)
@@ -187,10 +199,10 @@ impl ResizeScaleInternal {
                 + backend::style_size_property(&self.style, "padding-bottom");
         }
 
-        let size = size.to_physical(backend::scale_factor(&self.window));
+        let size = size.to_physical(self.scale.get());
 
         if self.notify_scale.replace(false) {
-            let scale = backend::scale_factor(&self.window);
+            let scale = self.scale.get();
             (self.scale_handler)(size, scale)
         } else {
             (self.resize_handler)(size)
@@ -231,8 +243,7 @@ impl ResizeScaleInternal {
         if !has_device_pixel_support() {
             let rect = entry.content_rect();
 
-            return LogicalSize::new(rect.width(), rect.height())
-                .to_physical(backend::scale_factor(&self.window));
+            return LogicalSize::new(rect.width(), rect.height()).to_physical(self.scale.get());
         }
 
         let entry: ResizeObserverSize =
@@ -262,10 +273,15 @@ impl ResizeScaleInternal {
             },
         };
 
+        // the browser's device pixels, of which the canvas draws its render scale
+        let render_scale = self.scale.render_scale();
+        let inline = (entry.inline_size() * render_scale).round() as u32;
+        let block = (entry.block_size() * render_scale).round() as u32;
+
         if horizontal {
-            PhysicalSize::new(entry.inline_size() as u32, entry.block_size() as u32)
+            PhysicalSize::new(inline, block)
         } else {
-            PhysicalSize::new(entry.block_size() as u32, entry.inline_size() as u32)
+            PhysicalSize::new(block, inline)
         }
     }
 }

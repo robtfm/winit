@@ -85,6 +85,19 @@ pub trait WindowExtWebSys {
     /// Some events are impossible to prevent. E.g. Firefox allows to access the native browser
     /// context menu with Shift+Rightclick.
     fn set_prevent_default(&self, prevent_default: bool);
+
+    /// Draws the canvas at a share of its device pixels, which the browser stretches to fill it:
+    /// the scale factor becomes the device pixel ratio times `render_scale`, so the logical size
+    /// stays the same and the change arrives as [`WindowEvent::ScaleFactorChanged`] followed by
+    /// [`WindowEvent::Resized`], as a browser zoom does. Pointer positions follow the new scale
+    /// factor; [`DeviceEvent`]s keep the device pixel ratio.
+    ///
+    /// `1.0` by default. Values that aren't positive and finite are ignored.
+    ///
+    /// [`WindowEvent::ScaleFactorChanged`]: crate::event::WindowEvent::ScaleFactorChanged
+    /// [`WindowEvent::Resized`]: crate::event::WindowEvent::Resized
+    /// [`DeviceEvent`]: crate::event::DeviceEvent
+    fn set_render_scale(&self, render_scale: f64);
 }
 
 impl WindowExtWebSys for Window {
@@ -99,6 +112,14 @@ impl WindowExtWebSys for Window {
 
     fn set_prevent_default(&self, prevent_default: bool) {
         self.window.set_prevent_default(prevent_default)
+    }
+
+    fn set_render_scale(&self, render_scale: f64) {
+        if render_scale > 0. && render_scale.is_finite() {
+            self.window.set_render_scale(render_scale)
+        } else {
+            tracing::warn!("ignoring render scale {render_scale}");
+        }
     }
 }
 

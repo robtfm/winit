@@ -108,6 +108,10 @@ impl Window {
         self.inner.dispatch(move |inner| inner.canvas.borrow().prevent_default.set(prevent_default))
     }
 
+    pub(crate) fn set_render_scale(&self, render_scale: f64) {
+        self.inner.dispatch(move |inner| inner.canvas.borrow().set_render_scale(render_scale))
+    }
+
     #[cfg(feature = "rwh_06")]
     #[inline]
     pub fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
@@ -280,7 +284,7 @@ impl Inner {
 
     #[inline]
     pub fn scale_factor(&self) -> f64 {
-        super::backend::scale_factor(&self.window)
+        self.canvas.borrow().scale_factor()
     }
 
     #[inline]

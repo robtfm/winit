@@ -26,7 +26,7 @@ use super::event_handle::EventListenerHandle;
 use super::intersection_handle::IntersectionObserverHandle;
 use super::media_query_handle::MediaQueryListHandle;
 use super::pointer::PointerHandler;
-use super::{event, fullscreen, ButtonsState, ResizeScaleHandle};
+use super::{event, fullscreen, ButtonsState, ResizeScaleHandle, ScaleFactor};
 
 #[allow(dead_code)]
 pub struct Canvas {
@@ -59,6 +59,7 @@ pub struct Common {
     /// for [`WindowHandle`][rwh_06::WindowHandle].
     raw: Rc<HtmlCanvasElement>,
     style: Style,
+    pub scale: ScaleFactor,
     old_size: Rc<Cell<PhysicalSize<u32>>>,
     current_size: Rc<Cell<PhysicalSize<u32>>>,
 }
@@ -117,27 +118,28 @@ impl Canvas {
             document: document.clone(),
             raw: Rc::new(canvas.clone()),
             style,
+            scale: ScaleFactor::new(window.clone()),
             old_size: Rc::default(),
             current_size: Rc::default(),
         };
 
         if let Some(size) = attr.inner_size {
-            let size = size.to_logical(super::scale_factor(&common.window));
+            let size = size.to_logical(common.scale.get());
             super::set_canvas_size(&common.document, &common.raw, &common.style, size);
         }
 
         if let Some(size) = attr.min_inner_size {
-            let size = size.to_logical(super::scale_factor(&common.window));
+            let size = size.to_logical(common.scale.get());
             super::set_canvas_min_size(&common.document, &common.raw, &common.style, Some(size));
         }
 
         if let Some(size) = attr.max_inner_size {
-            let size = size.to_logical(super::scale_factor(&common.window));
+            let size = size.to_logical(common.scale.get());
             super::set_canvas_max_size(&common.document, &common.raw, &common.style, Some(size));
         }
 
         if let Some(position) = attr.position {
-            let position = position.to_logical(super::scale_factor(&common.window));
+            let position = position.to_logical(common.scale.get());
             super::set_canvas_position(&common.document, &common.raw, &common.style, position);
         }
 
@@ -220,6 +222,21 @@ impl Canvas {
     #[inline]
     pub fn set_current_size(&self, size: PhysicalSize<u32>) {
         self.common.current_size.set(size)
+    }
+
+    #[inline]
+    pub fn scale_factor(&self) -> f64 {
+        self.common.scale.get()
+    }
+
+    /// Draws the canvas at `render_scale` of its device pixels, reported as a scale factor
+    /// change: the logical size stays the same.
+    pub fn set_render_scale(&self, render_scale: f64) {
+        if self.common.scale.set_render_scale(render_scale) {
+            if let Some(handle) = &self.on_resize_scale {
+                handle.notify_scale_change();
+            }
+        }
     }
 
     #[inline]
@@ -377,14 +394,14 @@ impl Canvas {
     where
         F: 'static + FnMut(i32, MouseScrollDelta, ModifiersState),
     {
-        let window = self.common.window.clone();
+        let scale = self.common.scale.clone();
         let prevent_default = Rc::clone(&self.prevent_default);
         self.on_mouse_wheel = Some(self.common.add_event("wheel", move |event: WheelEvent| {
             if prevent_default.get() {
                 event.prevent_default();
             }
 
-            if let Some(delta) = event::mouse_scroll_delta(&window, &event) {
+            if let Some(delta) = event::mouse_scroll_delta(scale.get(), &event) {
                 let modifiers = event::mouse_modifiers(&event);
                 handler(0, delta, modifiers);
             }
@@ -412,6 +429,7 @@ impl Canvas {
             self.document().clone(),
             self.raw().clone(),
             self.style().clone(),
+            self.common.scale.clone(),
             scale_handler,
             size_handler,
         ));

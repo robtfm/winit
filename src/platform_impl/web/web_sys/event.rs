@@ -143,17 +143,14 @@ impl MouseDelta {
     }
 }
 
-pub fn mouse_scroll_delta(
-    window: &web_sys::Window,
-    event: &WheelEvent,
-) -> Option<MouseScrollDelta> {
+pub fn mouse_scroll_delta(scale: f64, event: &WheelEvent) -> Option<MouseScrollDelta> {
     let x = -event.delta_x();
     let y = -event.delta_y();
 
     match event.delta_mode() {
         WheelEvent::DOM_DELTA_LINE => Some(MouseScrollDelta::LineDelta(x as f32, y as f32)),
         WheelEvent::DOM_DELTA_PIXEL => {
-            let delta = LogicalPosition::new(x, y).to_physical(super::scale_factor(window));
+            let delta = LogicalPosition::new(x, y).to_physical(scale);
             Some(MouseScrollDelta::PixelDelta(delta))
         },
         _ => None,
